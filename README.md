@@ -398,3 +398,134 @@ We want to make sure it's nullable because the field doesn't exist on any of our
   }
 }
 ```
+
+### Add a new Enum type
+
+[Enums](https://blog.logrocket.com/what-you-need-to-know-about-graphql-enums/), or "enumeration", types allow you to define a restricted set of values that are expected in a field (letting the client know via the type system they can always expect one of a limited set of values to be returned for the field) or argument (letting the client know they can only pass one of these values as an argument to a query or mutation).
+
+For example, let's look our newly written `getPokemonsByType` query. What if we passed the `type` of "Dog"?
+
+```
+query {
+  getPokemonsByType(type: "Dog") {
+    name
+    types
+    weaknesses
+    resistant
+  }
+}
+```
+
+We wouldn't get any data back:
+
+```
+{
+  "data": {
+    "getPokemonsByType": []
+  }
+}
+```
+
+This isn't great because maybe the client thinks there just aren't any Pokemon we've categorised under "Dog", when in reality the type "Dog" doesn't exist. If we had an enum type for this field, instead of a `GraphQLString`, then we would be able to validate the query input and in our schema, the client would also be able to see every type of `type` they could query.
+
+In our `/types` folder let's create a file called `ElementalEnumType.js`:
+
+```
+import { GraphQLEnumType } from "graphql";
+
+const ElementalEnumType = new GraphQLEnumType({
+  name: "ElementalEnum",
+  description: "All possible elemental types",
+  values: {
+    BUG: { value: "Bug" },
+    DARK: { value: "Dark" },
+    DRAGON: { value: "Dragon" },
+    ELECTRIC: { value: "Electric" },
+    FAIRY: { value: "Fairy" },
+    FIGHTING: { value: "Fighting" },
+    FIRE: { value: "Fire" },
+    FLYING: { value: "Flying" },
+    GHOST: { value: "Ghost" },
+    GRASS: { value: "Grass" },
+    GROUND: { value: "Ground" },
+    ICE: { value: "Ice" },
+    NORMAL: { value: "Normal" },
+    POISON: { value: "Poison" },
+    PSYCHIC: { value: "Psychic" },
+    ROCK: { value: "Rock" },
+    STEEL: { value: "Steel" },
+    WATER: { value: "Water" },
+  },
+});
+
+export default ElementalEnumType;
+```
+
+GraphQL gives us the `new GraphQLEnumType` constructor where we add the usual `name` and `description`, but this time instead of a resolver or `type` field, we'll add `values`, which are the possible values of the enum. For the key-value pairs of each item in the enum, the key must be written exactly how it appears in our data. Enums are always written in all caps. But in our data, the types are written "Fire" not "FIRE", and we have to match the value of the enum to how the data actually looks. So in the value object for each enum, we add how the data actually looks. If we were using a SQL database and the data we were fetching was from a column of type ENUM then we wouldn't need to specify these alternative values, and could just write `DRAGON: { }`.
+
+Make sure to import the `ElementalEnumType` file into `PokemonType.js` and we'll update the fields `types`, `resistant`, and `weaknesses` to have a type of `new GraphQLList(ElementalEnumType)` instead of `new GraphQLList(GraphQLString)`.
+
+Then in `QueryType.js` we want to import our enum and update the `args.type` type to `new GraphQLNonNull(ElementalEnumType)`, like so:
+
+```
+    getPokemonsByType: {
+      type: new GraphQLList(PokemonType),
+      args: {
+        type: {
+          type: new GraphQLNonNull(ElementalEnumType),
+        },
+      },
+      resolve: async (_, { type }) => {
+        return await getPokemonsByType(type);
+      },
+    },
+```
+
+Now if we run our build schema script and go back to the IDE, we can try to query for type "Dog" again. We receive back the error message _'Argument \"type\" has invalid value \"Dog\".\nExpected type \"ElementalEnum\", found \"Dog\".'_ If we look in the docs, we can see that the query has been updated to define the new expected arguments: `getPokemonsByType(type: ElementalEnum!): [Pokemon]`. We can also click on `ElementalEnum` and it will list all the possible values.
+
+It's important to note that enums are always written in all caps and without quotes (strings have quotes). So our query argument couldn't be updated to `getPokemonsByType(type: "DRAGON")` - it would have to be `getPokemonsByType(type: DRAGON)`. Then we get back the data we expect, and can see that enums are now returned as well:
+
+```
+{
+  "data": {
+    "getPokemonsByType": [
+      {
+        "name": "Dratini",
+        "types": [
+          "DRAGON"
+        ],
+        "weaknesses": [
+          "ICE",
+          "DRAGON",
+          "FAIRY"
+        ],
+        "resistant": [
+          "FIRE",
+          "WATER",
+          "ELECTRIC",
+          "GRASS"
+        ]
+      },
+      ...
+    ]
+  }
+}
+```
+
+### Add a new filter on a query
+
+Now let's say we want to add some filters to our queries. What is a filter? Take for example the [Countries API](https://countries-274616.ew.r.appspot.com/):
+
+```
+query getCountry {
+  Country(name: "Germany") {
+    name
+    nameTranslations(first: 10, filter: {OR: [{languageCode_contains: "e"}, {languageCode_not_starts_with: "d"}]}) {
+      languageCode
+      value
+    }
+  }
+}
+```
+
+The filters `languageCode_contains`, and `languageCode_not_starts_with` are provided by the library `neo4j-graphql-js` - in GraphQL APIs generally this is the case that the library connecting the database (SQL, MongoDB, Neo4J, etc) to the GraphQL API adds some filtering capabilities. Then you can use the operators `AND` and `OR` to combine the filters. So in the example above we want translations of "Germany" in languages whose language codes contain the letter "e" OR 
